@@ -6,15 +6,19 @@ import { InstagramCommentSchema } from "./schema";
 import fs from "fs";
 import path from "path";
 import * as readlineSync from "readline-sync";
+import ApiKeyManager from "../config/apiKeyManager";
+
+// Initialize the API key manager as a singleton
+const apiKeyManager = new ApiKeyManager(geminiApiKeys);
 
 export async function runAgent(schema: InstagramCommentSchema, prompt: string): Promise<any> {
-    let currentApiKeyIndex = 0;  
-    let geminiApiKey = geminiApiKeys[currentApiKeyIndex];
+    let geminiApiKey = apiKeyManager.getCurrentKey();
 
     if (!geminiApiKey) {
         logger.error("No Gemini API key available.");
         return "No API key available.";
     }
+
     const generationConfig = {
         responseMimeType: "application/json",
         responseSchema: schema,
@@ -28,6 +32,7 @@ export async function runAgent(schema: InstagramCommentSchema, prompt: string): 
 
     try {
         const result = await model.generateContent(prompt);
+        apiKeyManager.markKeyUsed(); // Mark the current key as used
 
         if (!result || !result.response) {
             logger.info("No response received from the AI model. || Service Unavailable");
@@ -39,7 +44,27 @@ export async function runAgent(schema: InstagramCommentSchema, prompt: string): 
 
         return data;
     } catch (error) {
-        await handleError(error, currentApiKeyIndex, schema, prompt, runAgent);
+        if (error instanceof Error) {
+            if (error.message.includes("429 Too Many Requests")) {
+                // Get the next available API key
+                geminiApiKey = apiKeyManager.getNextKey();
+                const status = apiKeyManager.getKeyStatus();
+                logger.info(`Switched to API key ${status.currentKey}/${status.totalKeys} (Usage: ${status.usageCount})`);
+                
+                // Retry with the new key
+                return runAgent(schema, prompt);
+            } else if (error.message.includes("503 Service Unavailable")) {
+                logger.error("Service is temporarily unavailable. Retrying...");
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                return runAgent(schema, prompt);
+            } else {
+                logger.error(`Error generating content: ${error.message}`);
+                return `An error occurred: ${error.message}`;
+            }
+        } else {
+            logger.error("An unknown error occurred:", error);
+            return "An unknown error occurred.";
+        }
     }
 }
 

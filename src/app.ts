@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import helmet from 'helmet'; // For securing HTTP headers
 
-import { runInstagram } from './client/Instagram';
+import runInstagram from './client/Instagram';
 import logger, { setupErrorHandlers } from './config/logger';
 import { setup_HandleError } from './utils';
 import { connectDB } from './config/db';
