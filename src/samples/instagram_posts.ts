@@ -144,7 +144,7 @@ Swipe to see how she did it and learn how AI can help YOUR business!
 Ready to transform your business with AI? Drop a "🤖" below!
 
 #SmallBusiness #AI #BusinessInnovation #SuccessStory #Entrepreneurship #DigitalTransformation #AIStrategy`,
-    imageDescription: 'Carousel of infographics and photos showing the bakery's transformation, including before/after metrics and implementation steps',
+    imageDescription: "Carousel of infographics and photos showing the bakery\\'s transformation, including before/after metrics and implementation steps",
     engagement: {
       likes: 4521,
       comments: 567,

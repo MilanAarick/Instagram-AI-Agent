@@ -10,6 +10,8 @@ import { Instagram_cookiesExist, loadCookies, saveCookies } from "../utils";
 import { runAgent } from "../Agent";
 import { getInstagramCommentSchema } from "../Agent/schema";
 import RateLimitTracker from "../config/rateLimit";
+import fs from 'fs';
+import path from 'path';
 
 // Add stealth plugin to puppeteer
 puppeteer.use(StealthPlugin());
@@ -20,6 +22,11 @@ puppeteer.use(
     })
 );
 
+interface InstagramCredentials {
+    username: string;
+    password: string;
+}
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Initialize rate limiter with account creation date
@@ -28,7 +35,25 @@ const rateLimiter = new RateLimitTracker(new Date()); // You should replace this
 // Add a Set to track commented posts (outside of functions to persist between iterations)
 const commentedPosts = new Set<string>();
 
-async function runInstagram() {
+async function runInstagram(credentials?: InstagramCredentials) {
+    const username = credentials?.username || IGusername;
+    const password = credentials?.password || IGpassword;
+    
+    // Create cookies directory if it doesn't exist
+    const cookiesDir = "./cookies";
+    if (!fs.existsSync(cookiesDir)) {
+        fs.mkdirSync(cookiesDir);
+    }
+
+    // Use account-specific cookie file
+    const cookiesPath = path.join(cookiesDir, `instagram_${username}.json`);
+
+    // Delete any existing cookies for this account
+    if (fs.existsSync(cookiesPath)) {
+        fs.unlinkSync(cookiesPath);
+        logger.info(`Deleted existing cookies for account: ${username}`);
+    }
+
     const server = new Server({ port: 8000 });
     await server.listen();
     const proxyUrl = `http://localhost:8000`;
@@ -38,59 +63,37 @@ async function runInstagram() {
     });
 
     const page = await browser.newPage();
-    const cookiesPath = "./cookies/Instagramcookies.json";
 
-    const checkCookies = await Instagram_cookiesExist();
-    logger.info(`Checking cookies existence: ${checkCookies}`);
+    // Always perform fresh login with credentials
+    await loginWithCredentials(page, browser, username, password, cookiesPath);
 
-    if (checkCookies) {
-        const cookies = await loadCookies(cookiesPath);
-        await page.setCookie(...cookies);
-        logger.info('Cookies loaded and set on the page.');
-
-        // Navigate to Instagram to verify if cookies are valid
-        await page.goto("https://www.instagram.com/", { waitUntil: 'networkidle2' });
-
-        // Check if login was successful by verifying page content (e.g., user profile or feed)
-        const isLoggedIn = await page.$("a[href='/direct/inbox/']");
-        if (isLoggedIn) {
-            logger.info("Login verified with cookies.");
-        } else {
-            logger.warn("Cookies invalid or expired. Logging in again...");
-            await loginWithCredentials(page, browser);
-        }
-    } else {
-        // If no cookies are available, perform login with credentials
-        await loginWithCredentials(page, browser);
-    }
-
-    // Optionally take a screenshot after loading the page
-    await page.screenshot({ path: "logged_in.png" });
+    // Take a screenshot after loading the page
+    await page.screenshot({ path: `logged_in_${username}.png` });
 
     // Navigate to the Instagram homepage
     await page.goto("https://www.instagram.com/");
 
     // Continuously interact with posts without closing the browser
     while (true) {
-         await interactWithPosts(page);
-         logger.info("Iteration complete, waiting 30 seconds before refreshing...");
-         await delay(30000);
-         try {
-             await page.reload({ waitUntil: "networkidle2" });
-         } catch (e) {
-             logger.warn("Error reloading page, continuing iteration: " + e);
-         }
+        await interactWithPosts(page);
+        logger.info("Iteration complete, waiting 30 seconds before refreshing...");
+        await delay(30000);
+        try {
+            await page.reload({ waitUntil: "networkidle2" });
+        } catch (e) {
+            logger.warn("Error reloading page, continuing iteration: " + e);
+        }
     }
 }
 
-const loginWithCredentials = async (page: any, browser: Browser) => {
+const loginWithCredentials = async (page: any, browser: Browser, username: string, password: string, cookiesPath: string) => {
     try {
         await page.goto("https://www.instagram.com/accounts/login/");
         await page.waitForSelector('input[name="username"]');
 
         // Fill out the login form
-        await page.type('input[name="username"]', IGusername); // Replace with your username
-        await page.type('input[name="password"]', IGpassword); // Replace with your password
+        await page.type('input[name="username"]', username);
+        await page.type('input[name="password"]', password);
         await page.click('button[type="submit"]');
 
         // Wait for navigation after login
@@ -98,11 +101,11 @@ const loginWithCredentials = async (page: any, browser: Browser) => {
 
         // Save cookies after login
         const cookies = await browser.cookies();
-        // logger.info("Saving cookies after login...",cookies);
-        await saveCookies("./cookies/Instagramcookies.json", cookies);
+        await saveCookies(cookiesPath, cookies);
+        logger.info(`Saved new cookies for account: ${username}`);
     } catch (error) {
-        // logger.error("Error logging in with credentials:", error);
-        logger.error("Error logging in with credentials:");
+        logger.error(`Error logging in with credentials for account ${username}`);
+        throw error;
     }
 }
 
